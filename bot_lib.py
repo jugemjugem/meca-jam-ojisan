@@ -85,6 +85,8 @@ def pick_reply(templates: list[str], context: dict) -> str | None:
 GREET_PATTERNS = [
     r"\bhi+\b", r"\bhello+\b", r"\bhey+\b", r"\byo+\b",
     r"こん(?:にち|ちは)", r"おは(?:よ|よう)", r"こんば(?:ん|わ)は", r"やあ", r"やほ", r"はろー?", r"ﾊﾛｰ"
+    ,r"ちーっす"
+    , r"ちっす"
 ]
 GREET_REGEX = re.compile("|".join(f"(?:{p})" for p in GREET_PATTERNS), re.IGNORECASE)
 
