@@ -5,8 +5,8 @@
 
 ひとまず、お返事するDiscordBOT
 
-### default_replies.txt 
-
+### replies_default.txt 
+  
 応答する項目を列挙します。１行が１応答。
 以下の通り置き換えてから表示されます。
 {mention} を message.author.mention
@@ -18,4 +18,4 @@
 
 ### コマンド
 
-とりあえず、 /greek test で生存確認できます。
+とりあえず、 /greet test で生存確認できます。
