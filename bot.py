@@ -4,7 +4,7 @@ import time
 import sys
 import types
 from typing import Set, Dict
-
+import random
 
 
 # ── Python 3.13 互換のための audioop スタブ ─────────────────────────────────────
@@ -107,7 +107,7 @@ async def on_member_join(member: discord.Member):
     if WELCOME_CHANNEL_ID and member.guild.id == GUILD_ID:
         channel = member.guild.get_channel(WELCOME_CHANNEL_ID)
         if channel and isinstance(channel, discord.TextChannel):
-            await channel.send(f"ようこそ {member.mention} さん！ここは 172 のゲーム広場、気軽に挨拶してね🎮")
+            await channel.send(f"ようこそ {member.mention} さん！ここは 172交流サーバーですよ。挨拶してね🎮")
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -118,41 +118,49 @@ async def on_message(message: discord.Message):
         return
     if message.guild.id != GUILD_ID:
         return
+
+
+    # リプライまたはメンションがBot宛かどうか
+    is_reply_to_bot = False
+    if message.reference and isinstance(message.reference.resolved, discord.Message):
+        is_reply_to_bot = message.reference.resolved.author == bot.user
+
+    is_mention_to_bot = bot.user in message.mentions
+
     if not is_target_channel(message.channel.id):
         return
     if not is_greet_enabled(message.guild.id):
         return
-
+    # どちらかに当てはまらなければ無視（※全チャンネル対象の場合）
+    if not (is_reply_to_bot or is_mention_to_bot):
+        return
     content = message.content.strip()
     if not content:
         return
 
     # 挨拶検出
-    if GREET_REGEX.search(content):
-        now = time.time()
-        last = last_greet_ts_by_user.get(message.author.id, 0.0)
-        if now - last < COOLDOWN_SECONDS:
-            return  # クールダウン中はスルー
-        last_greet_ts_by_user[message.author.id] = now
+    now = time.time()
+    last = last_greet_ts_by_user.get(message.author.id, 0.0)
+    if now - last < COOLDOWN_SECONDS:
+        return  # クールダウン中はスルー
+    last_greet_ts_by_user[message.author.id] = now
 
-        # 返信文を少しバリエーション
-        replies = [
-            f"{message.author.mention} いらっしゃい！今日も楽しんでこー！",
-            f"{message.author.mention} こんにちは！どのゲーム行く？",
-            f"{message.author.mention} おはよう！ナイスログイン☀",
-            f"{message.author.mention} こんばんは！集まってるよ〜🌙",
-        ]
-        # 内容から軽く寄せる
-        if re.search(r"おは|ohayo|morning", content, re.IGNORECASE):
-            text = f"{message.author.mention} おはよう！朝活いく？☀"
-        elif re.search(r"こんば|evening|night", content, re.IGNORECASE):
-            text = f"{message.author.mention} こんばんは！一戦どう？🌙"
-        elif re.search(r"hi|hello|hey", content, re.IGNORECASE):
-            text = f"{message.author.mention} Hello! Ready to play? 🎮"
-        else:
-            text = replies[int(now) % len(replies)]
+    # 返信文を少しバリエーション
+    replies = [
+        f"{message.author.display_name} さんいらっしゃい！今日も楽しんでこー！",
+        f"それで、{message.author.display_name}さんは女の子？",
+        f"はーい、じゃむさんですよー",
+        f"きりりん呼んできてー",
+        f"人妻と(荒野行動)やるわ",
+        f"淫夢....いい響きだ",
+        f"♂ばっかりやし…",
+        f"文字起こし禁止！！",
+        f"おはにょー",
+    ]
 
-        await message.reply(text, mention_author=True)
+    text = random.choice(replies)
+
+    await message.reply(text, mention_author=True)
 
 # ── Slash Commands ────────────────────────────────────────────────────────────
 @tree.command(name="greet", description="挨拶返信の設定とテスト")
