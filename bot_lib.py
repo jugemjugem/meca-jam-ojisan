@@ -4,10 +4,12 @@ import re
 import time
 import random
 from dataclasses import dataclass
-from typing import Dict, Set, Optional
+from typing import Dict, Set, Optional, List
 
 # discord モジュール対応
 from audioop_stub import ensure_audioop_stub
+from omikuji_Dealer import pick_omikuji
+
 ensure_audioop_stub()
 
 import discord
@@ -208,6 +210,25 @@ class BotContext(commands.Cog):
         else:
             await interaction.response.send_message("テストOK！ここで挨拶すると返信しますよ🎉", ephemeral=True)
 
+    @app_commands.command(name="omikuji", description="今日のおみくじを引きます")
+    async def omikuji_command(self, interaction: discord.Interaction):
+        result = pick_omikuji()
+        if not result:
+            await interaction.response.send_message("おみくじの準備ができていないようです。", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title=f"⛩️ {interaction.user.display_name}さんの運勢",
+            description=f"あなたの今日のタイプは **{result.name}** です！",
+            color=discord.Color.random()
+        )
+        embed.add_field(name="属性", value=result.attribute, inline=True)
+        embed.add_field(name="状態", value=result.state, inline=True)
+        embed.add_field(name="運勢", value=result.emoji, inline=True)
+        embed.add_field(name="お告げ", value=result.description, inline=False)
+        embed.set_footer(text=f"運勢絵文字: {result.emoji}")
+
+        await interaction.response.send_message(embed=embed)
 
 async def bot_main(cfg: Config):
     logger.info("bot_main begin")
