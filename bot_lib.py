@@ -8,7 +8,7 @@ from typing import Dict, Set, Optional, List
 
 # discord モジュール対応
 from audioop_stub import ensure_audioop_stub
-from omikuji_Dealer import pick_omikuji
+from omikuji_Dealer import FileOmikujiReader,OmikujiWriter, OmikujiDealer, Omikuji
 
 ensure_audioop_stub()
 
@@ -20,7 +20,7 @@ import asyncio
 
 from pk_log import init_logger
 
-logger = init_logger(__name__)
+logger = init_logger(__name__, with_file=True)
 
 @dataclass(frozen=True)
 class Config:
@@ -33,23 +33,6 @@ class Config:
     channel_ids: Set[int]
     cooldown_seconds: int
 
-    @staticmethod
-    def from_env() -> "Config":
-        token = os.getenv("DISCORD_TOKEN") or ""
-        guild_id = int(os.getenv("GUILD_ID", "0"))
-        welcome_env = os.getenv("WELCOME_CHANNEL_ID")
-        welcome_channel_id = int(welcome_env) if (welcome_env and welcome_env.isdigit()) else None
-        channel_ids = {
-            int(x) for x in os.getenv("CHANNEL_IDS", "").split(",") if x.strip().isdigit()
-        }
-        cooldown_seconds = int(os.getenv("COOLDOWN_SECONDS", "60"))
-        return Config(
-            token=token,
-            guild_id=guild_id,
-            welcome_channel_id=welcome_channel_id,
-            channel_ids=channel_ids,
-            cooldown_seconds=cooldown_seconds,
-        )
 
 
 def is_target_channel(channel_id: int, channel_ids: Set[int]) -> bool:
@@ -82,6 +65,30 @@ def pick_reply(templates: list[str], context: dict) -> str | None:
 
 #######################################################
 
+class DiscordOmikujiWriter(OmikujiWriter):
+
+    def __init__(self, interaction: discord.Interaction):
+        super().__init__()
+        self.interaction = interaction
+
+    async def print_omikuji(self, omikuji: Omikuji):
+        result = omikuji
+        if not result:
+            await self.interaction.response.send_message("おみくじの準備ができていないようです。", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title=f"⛩️ {self.interaction.user.display_name}さんの運勢",
+            description=f"あなたの今日のタイプは **{result.name}** です！",
+            color=discord.Color.random()
+        )
+        embed.add_field(name="属性", value=result.attribute, inline=True)
+        embed.add_field(name="状態", value=result.state, inline=True)
+        embed.add_field(name="運勢", value=result.emoji, inline=True)
+        embed.add_field(name="お告げ", value=result.description, inline=False)
+        embed.set_footer(text=f"運勢絵文字: {result.emoji}")
+
+        await self.interaction.response.send_message(embed=embed)
 
 # 反応する挨拶パターン（日本語/英語、ゆるめ正規表現）
 GREET_PATTERNS = [
@@ -122,20 +129,24 @@ class BotContext(commands.Cog):
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         # 自分やBotは無視
+        logger.debug(f".... on_message {message.author}")
         if message.author.bot:
             return
         if message.guild is None or message.guild.id != self.cfg.guild_id:
+            logger.debug(f"💢 n_message message.guild is None or message.guild.id({message.guild.id}) != self.cfg.guild_id({self.cfg.guild_id})")
             return
 
         if not is_target_channel(message.channel.id, self.cfg.channel_ids):
+            logger.debug(f"💢 on_message not is_target_channel....{self.cfg.channel_ids}.and.{message.channel.id}")
             return
 
         content = (message.content or "").strip()
         if not content:
             # メッセージが空っぽなので、無視
+            logger.debug("💢 on_message メッセージが空っぽなので、無視")
             return
 
-        logger.debug("on_message begin")
+        logger.debug(f"💬 on_message begin {message.author} {message.content}")
         # リプライまたはメンションがBot宛かどうか
         is_reply_to_bot = False
         if message.reference and isinstance(message.reference.resolved, discord.Message):
@@ -210,25 +221,20 @@ class BotContext(commands.Cog):
         else:
             await interaction.response.send_message("テストOK！ここで挨拶すると返信しますよ🎉", ephemeral=True)
 
+
+    # /omikuji コマンド
     @app_commands.command(name="omikuji", description="今日のおみくじを引きます")
     async def omikuji_command(self, interaction: discord.Interaction):
-        result = pick_omikuji()
-        if not result:
+
+        dealer = OmikujiDealer(reader=FileOmikujiReader("omikuji-txt.txt"),
+                               writer=DiscordOmikujiWriter(interaction=interaction))
+        if not dealer.load_omikuji(None):
+            logger.error("omikuji_command load_omikuji failed")
             await interaction.response.send_message("おみくじの準備ができていないようです。", ephemeral=True)
             return
+        result = dealer.pick_omikuji()
+        await dealer.print_omikuji(result)
 
-        embed = discord.Embed(
-            title=f"⛩️ {interaction.user.display_name}さんの運勢",
-            description=f"あなたの今日のタイプは **{result.name}** です！",
-            color=discord.Color.random()
-        )
-        embed.add_field(name="属性", value=result.attribute, inline=True)
-        embed.add_field(name="状態", value=result.state, inline=True)
-        embed.add_field(name="運勢", value=result.emoji, inline=True)
-        embed.add_field(name="お告げ", value=result.description, inline=False)
-        embed.set_footer(text=f"運勢絵文字: {result.emoji}")
-
-        await interaction.response.send_message(embed=embed)
 
 async def bot_main(cfg: Config):
     logger.info("bot_main begin")
@@ -239,7 +245,7 @@ async def bot_main(cfg: Config):
 
     @bot.event
     async def setup_hook() -> None:
-        logger.info("setup_hook begin")
+        logger.info("✅ setup_hook begin")
         try:
             guild = discord.Object(id=cfg.guild_id)
             bot.tree.copy_global_to(guild=guild)
@@ -247,20 +253,40 @@ async def bot_main(cfg: Config):
             logger.info(f"✅ Logged in as {bot.user} / Commands synced to guild {cfg.guild_id}")
         except Exception as e:
             logger.exception(e)
-        logger.info("setup_hook end")
+        logger.info("✅ setup_hook end")
 
     await bot.add_cog(BotContext(bot, cfg))
     await bot.start(cfg.token)
     logger.info("bot_main end")
     pass
 
-if __name__ == "__main__":
-    from dotenv import load_dotenv
-    load_dotenv()
 
-    logger.info("bot_main")
-    cfg = Config.from_env()
+def test_bot():
+
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path="test.env", verbose=True)
+
+    token = os.getenv("USHIZAKI_DTEST_TOKEN") or ""
+    guild_id = int(os.getenv("USIHZAKI_GUILD_ID", "0"))
+    welcome_env = os.getenv("WELCOME_CHANNEL_ID")
+    welcome_channel_id = int(welcome_env) if (welcome_env and welcome_env.isdigit()) else None
+    channel_ids = {
+        int(x) for x in os.getenv("USHIZAKI_CHANNEL_IDS", "").split(",") if x.strip().isdigit()
+    }
+    cooldown_seconds = int(os.getenv("COOLDOWN_SECONDS", "60"))
+
+    cfg = Config(
+            token=token,
+            guild_id=guild_id,
+            welcome_channel_id=welcome_channel_id,
+            channel_ids=channel_ids,
+            cooldown_seconds=cooldown_seconds,
+        )
     if not cfg.token or not cfg.guild_id:
         raise RuntimeError("DISCORD_TOKEN と GUILD_ID を設定してください。")
     asyncio.run(bot_main(cfg))
     logger.info("end")
+
+
+if __name__ == "__main__":
+    test_bot()
